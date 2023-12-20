@@ -1,0 +1,136 @@
+import torch
+import torch.nn as nn
+import numpy as np
+import random
+from PIL import Image
+from tqdm import tqdm
+import torch.nn as nn
+from collections import OrderedDict
+
+def torch_fix_seed(seed=1):
+    # Python random
+    random.seed(seed)
+    # Numpy
+    np.random.seed(seed)
+    # Pytorch
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms = True
+    print("utils [info] : torch_fix_seed")
+
+
+def train_one_epoch(model, train_loader, processor, optimizer, config, device, wandb):
+    
+    # ネットワークモデルを学習モードに設定
+    model.train()
+
+    sum_loss = 0.0
+    count = 0
+    
+    with tqdm(train_loader) as pbar:
+        for images, labels in pbar:
+            image_list = []
+            for img_path in images:
+                # 画像を開きRGB形式に変換
+                img = Image.open(img_path).convert('RGB')
+                image_list.append(img)
+            
+            inputs = processor(images=image_list, 
+                               text=labels, 
+                               return_tensors="pt", 
+                               max_length=config.max_length, 
+                               truncation=True, 
+                               padding="longest",
+                               )
+
+            inputs = {key: value.to(device) for key, value in inputs.items()}
+            count += 1
+
+            outputs= model(flattened_patches = inputs['flattened_patches'],
+                           attention_mask = inputs['attention_mask'],
+                           #decoder_input_ids = inputs['decoder_input_ids'],
+                           decoder_attention_mask = inputs['decoder_attention_mask'],
+                           labels = inputs['decoder_input_ids'],
+                           )
+
+            loss = outputs.loss.mean()
+    
+            optimizer.zero_grad()
+            loss.backward()
+
+            if config.clip_value is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), config.clip_value)
+
+            optimizer.step()
+    
+            sum_loss += loss.item()
+    
+            pbar.set_postfix(OrderedDict(loss=loss.item(), 
+                                         ave_loss=sum_loss/count, 
+                                         lr = optimizer.param_groups[0]['lr'],
+                                         ))
+            
+            loss_num = loss.item()
+
+            if config.wandb == True:
+                wandb.log({
+                    "train_iter_loss" : loss_num,
+                    "lr" : optimizer.param_groups[0]['lr'],
+                    "input_ids_length_train" : inputs["input_ids"].shape[1],
+                    })
+    
+    return sum_loss/count
+
+
+
+def test_one_epoch(model, test_loader, processor, config, device, wandb):
+    
+    # ネットワークモデルを学習モードに設定
+    model.eval()
+
+    sum_loss = 0.0
+    count = 0
+    
+    with tqdm(test_loader) as pbar:
+        for images, labels in pbar:
+            image_list = []
+            for img_path in images:
+                # 画像を開きRGB形式に変換
+                img = Image.open(img_path).convert('RGB')
+                image_list.append(img)
+            
+            inputs = processor(images=image_list, 
+                               text=labels, 
+                               return_tensors="pt", 
+                               max_length=config.max_length, 
+                               truncation=True, 
+                               padding="longest",
+                               )
+
+            inputs = {key: value.to(device) for key, value in inputs.items()}
+            count += 1
+
+            outputs= model(flattened_patches = inputs['flattened_patches'],
+                           attention_mask = inputs['attention_mask'],
+                           #decoder_input_ids = inputs['decoder_input_ids'],
+                           decoder_attention_mask = inputs['decoder_attention_mask'],
+                           labels = inputs['decoder_input_ids'],
+                           )
+
+            loss = outputs.loss.mean()
+       
+            sum_loss += loss.item()
+    
+            pbar.set_postfix(OrderedDict(loss=loss.item(), 
+                                         ave_loss=sum_loss/count, 
+                                         ))
+            
+            loss_num = loss.item()
+
+            if config.wandb == True:
+                wandb.log({
+                    "test_iter_loss" : loss_num,
+                    })
+    
+    return sum_loss/count
