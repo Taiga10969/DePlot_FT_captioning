@@ -73,11 +73,10 @@ def train_one_epoch(model, train_loader, processor, optimizer, config, device, w
             
             loss_num = loss.item()
 
-            if config.wandb == True:
+            if config.wandb:
                 wandb.log({
                     "train_iter_loss" : loss_num,
                     "lr" : optimizer.param_groups[0]['lr'],
-                    "input_ids_length_train" : inputs["input_ids"].shape[1],
                     })
     
     return sum_loss/count
@@ -128,9 +127,19 @@ def test_one_epoch(model, test_loader, processor, config, device, wandb):
             
             loss_num = loss.item()
 
-            if config.wandb == True:
+            if config.wandb:
                 wandb.log({
                     "test_iter_loss" : loss_num,
                     })
     
     return sum_loss/count
+
+
+def freeze_pix2struct_parameters(pix2struct_model):
+    # Pix2StructVisionModelのパラメータを取得
+    pix2struct_params = pix2struct_model.encoder.parameters()
+
+    # パラメータを凍結
+    for param in pix2struct_params:
+        param.requires_grad = False
+    print("freeze_pix2struct_parameters [info]: Completed freeze pix2struct_params")
